@@ -1,6 +1,6 @@
 # fix_epub_metadata.py
 
-import sys
+import sys, os, shutil, tempfile
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
@@ -58,13 +58,13 @@ class MainWindow(QMainWindow):
 		groupBox = QGroupBox("Metadata")
 		
 		self._titleEdit = QLineEdit()
-		self._titleEdit.textEdited.connect(self.updateOpfFromMetadata)
+		self._titleEdit.textEdited.connect(self.updateNewOpfFile)
 		
 		self._authorEdit = QLineEdit()
-		self._authorEdit.textEdited.connect(self.updateOpfFromMetadata)
+		self._authorEdit.textEdited.connect(self.updateNewOpfFile)
 
 		self._authorFileAsEdit = QLineEdit()
-		self._authorFileAsEdit.textEdited.connect(self.updateOpfFromMetadata)
+		self._authorFileAsEdit.textEdited.connect(self.updateNewOpfFile)
 
 		groupLayout = QFormLayout()
 		groupLayout.addRow("Title:", self._titleEdit)
@@ -117,6 +117,9 @@ class MainWindow(QMainWindow):
 		groupBox = QGroupBox("New OPF File")
 		
 		self._newOpfEdit = QTextEdit()
+		self._newOpfEdit.setTabStopWidth(16)
+		self._newOpfEdit.setWordWrapMode(QTextOption.NoWrap)
+		self._newOpfEdit.setFont(QFont("Consolas", 9))
 		self._newOpfEdit.setReadOnly(False)
 		
 		groupLayout = QVBoxLayout()
@@ -146,22 +149,8 @@ class MainWindow(QMainWindow):
 			"ePub Files (*.epub);;All Files (*)")[0]
 		if (filePath != ""):
 			self._pathEdit.setText(filePath)
+			self.setEpubFile(filePath)
 			
-			# (title, author, authorFileAs, coverImage, fullOpfText) = self.getEpubMetadata(filePath)
-			# self._titleEdit.setText(title)
-			# self._authorEdit.setText(author)
-			# self._authorFileAsEdit.setText(authorFileAs)
-			# self._coverImageLabel.setPixmap(QPixmap.fromImage(coverImage.scaled(self._coverImageLabel.size(), Qt.KeepAspectRatio)))
-			# self._originalOpfEdit.setPlainText(fullOpfText.decode("utf-8"))				
-
-			#self.updateOpfFromMetadata()
-			
-			coverImage = self.readCoverImage(filePath)
-			self._coverImageLabel.setPixmap(QPixmap.fromImage(coverImage.scaled(self._coverImageLabel.size(), Qt.KeepAspectRatio)))
-		
-	def updateOpfFromMetadata(self):
-		pass
-		
 	def selectCoverImage(self):
 		filePath = QFileDialog.getOpenFileName(self, "Select Cover Image", "",
 			"jpeg Files (*.jpeg, *.jpg);;All Files (*)")[0]
@@ -172,16 +161,33 @@ class MainWindow(QMainWindow):
 			coverImage = self.readCoverImage(self._pathEdit.text())
 			self._coverImageLabel.setPixmap(QPixmap.fromImage(coverImage.scaled(self._coverImageLabel.size(), Qt.KeepAspectRatio)))
 			
+	def updateNewOpfFile(self):
+		self._newOpfEdit.setPlainText(self.buildNewOpf(self._originalOpfEdit.toPlainText(), 
+			self._titleEdit.text(), self._authorEdit.text(), self._authorFileAsEdit.text()))
+		
 	def updateEpubFileMetadata(self):
-		pass
+		self.writeOpfFile(self._pathEdit.text(), self._newOpfEdit.toPlainText())
+		self.setEpubFile(self._pathEdit.text())
+		
+	def setEpubFile(self, epubPath):
+		(fullOpfText, title, author, authorFileAs) = self.readOpfFile(epubPath)
+		self._originalOpfEdit.setPlainText(fullOpfText.decode("utf-8"))				
+		self._titleEdit.setText(title)
+		self._authorEdit.setText(author)
+		self._authorFileAsEdit.setText(authorFileAs)
+
+		coverImage = self.readCoverImage(epubPath)
+		self._coverImageLabel.setPixmap(QPixmap.fromImage(coverImage.scaled(self._coverImageLabel.size(), Qt.KeepAspectRatio)))
+
+		self.updateNewOpfFile()
 		
 	#-----------------------------------------------------------------------------------------------
 
-	def getEpubMetadata(self, epubPath):
+	def readOpfFile(self, epubPath):
+		fullOpfText = ""
 		title = ""
 		author = ""
 		authorFileAs = ""
-		fullOpfText = ""
 		
 		with zipfile.ZipFile(epubPath, 'r') as epubFile:
 			with epubFile.open(self.getOpfPath(epubFile)) as opfFile:
@@ -215,32 +221,23 @@ class MainWindow(QMainWindow):
 					else:
 						xml.skipCurrentElement()
 										
-		return (title, author, authorFileAs, fullOpfText)
+		return (fullOpfText, title, author, authorFileAs)
 
-	def getOpfPath(self, epubFile):
+	def writeOpfFile(self, epubPath, opfContents):
 		opfPath = ""
+		with zipfile.ZipFile(epubPath, 'r') as epubFile:
+			opfPath = self.getOpfPath(epubFile)
 		
-		with epubFile.open("META-INF/container.xml") as containerFile:
-			xml = QXmlStreamReader(containerFile.read())
-			while (opfPath == "" and xml.readNextStartElement()):
-				if (xml.name() == "container"):
-					while (opfPath == "" and xml.readNextStartElement()):
-						if (xml.name() == "rootfiles"):
-							while (opfPath == "" and xml.readNextStartElement()):
-								if (xml.name() == "rootfile"):
-									attr = xml.attributes()
-									if (attr.hasAttribute("full-path") and attr.hasAttribute("media-type") and 
-										attr.value("media-type") == "application/oebps-package+xml"):
-										opfPath = attr.value("full-path")
-								xml.skipCurrentElement()
-						else:
-							xml.skipCurrentElement()					
-				else:
-					xml.skipCurrentElement()
-		
-		return opfPath
+		if (opfPath != ""):
+			self.removeFromEpub(epubPath, opfPath)
+			with zipfile.ZipFile(epubPath, 'a') as epubFile:
+				epubFile.writestr(opfPath, opfContents)
 
+	def buildNewOpf(self, originalOpfText, title, author, authorFileAs):
+		return ""
 		
+	#-----------------------------------------------------------------------------------------------
+	
 	def readCoverImage(self, epubPath):
 		image = QImage()
 		
@@ -257,9 +254,8 @@ class MainWindow(QMainWindow):
 		with zipfile.ZipFile(epubPath, 'r') as epubFile:
 			coverPath = self.getCoverImagePath(epubFile)
 		
-		# Note: this code doesn't work
-		#Updating a file in a ZIP is not supported. You need to rebuild a new archive without the file, then add the updated version.
 		if (coverPath != ""):
+			self.removeFromEpub(epubPath, coverPath)
 			with zipfile.ZipFile(epubPath, 'a') as epubFile:
 				epubFile.write(imagePath, coverPath)
 	
@@ -294,7 +290,46 @@ class MainWindow(QMainWindow):
 					xml.skipCurrentElement()
 		
 		return coverPath
+	
+	#-----------------------------------------------------------------------------------------------
+	
+	def getOpfPath(self, epubFile):
+		opfPath = ""
 		
+		with epubFile.open("META-INF/container.xml") as containerFile:
+			xml = QXmlStreamReader(containerFile.read())
+			while (opfPath == "" and xml.readNextStartElement()):
+				if (xml.name() == "container"):
+					while (opfPath == "" and xml.readNextStartElement()):
+						if (xml.name() == "rootfiles"):
+							while (opfPath == "" and xml.readNextStartElement()):
+								if (xml.name() == "rootfile"):
+									attr = xml.attributes()
+									if (attr.hasAttribute("full-path") and attr.hasAttribute("media-type") and 
+										attr.value("media-type") == "application/oebps-package+xml"):
+										opfPath = attr.value("full-path")
+								xml.skipCurrentElement()
+						else:
+							xml.skipCurrentElement()					
+				else:
+					xml.skipCurrentElement()
+		
+		return opfPath
+
+	def removeFromEpub(self, epubPath, arcname):
+		tempdir = tempfile.mkdtemp()
+		try:
+			tempname = os.path.join(tempdir, 'new.zip')
+			with zipfile.ZipFile(epubPath, 'r') as zipread:
+				with zipfile.ZipFile(tempname, 'w') as zipwrite:
+					for item in zipread.infolist():
+						if (item.filename != arcname):
+							data = zipread.read(item.filename)
+							zipwrite.writestr(item, data)
+			shutil.move(tempname, epubPath)
+		finally:
+			shutil.rmtree(tempdir)
+			
 #===================================================================================================
 
 if (__name__ == "__main__"):
