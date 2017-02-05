@@ -298,7 +298,8 @@ class MainWindow(QMainWindow):
 		coverPath = ""
 		coverId = ""
 		
-		with epubFile.open(self.getOpfPath(epubFile)) as opfFile:
+		opfPath = self.getOpfPath(epubFile)
+		with epubFile.open(opfPath) as opfFile:
 			xml = QXmlStreamReader(opfFile.read())
 			while (xml.readNextStartElement()):
 				if (xml.name() == "package"):
@@ -317,7 +318,7 @@ class MainWindow(QMainWindow):
 									attr = xml.attributes()
 									if (attr.hasAttribute("id") and attr.hasAttribute("href") and
 										attr.value("id") == coverId):
-										coverPath = attr.value("href")
+										coverPath = os.path.dirname(opfPath) + "/" + attr.value("href")
 								xml.skipCurrentElement()
 						else:
 							xml.skipCurrentElement()
