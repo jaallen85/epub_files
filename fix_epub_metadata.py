@@ -8,7 +8,7 @@ from PyQt5.QtXml import *
 import zipfile
 
 class MainWindow(QMainWindow):
-	def __init__(self):
+	def __init__(self, filePath = ""):
 		QWizard.__init__(self)
 		
 		metadataLayout = QHBoxLayout()
@@ -30,6 +30,10 @@ class MainWindow(QMainWindow):
 		
 		self.setWindowTitle("Fix ePub Metadata")
 		self.resize(1400, 800)
+		
+		if (filePath != ""):
+			self._pathEdit.setText(filePath)
+			self.setEpubFile(filePath)
 				
 	def createInputPathWidget(self):
 		groupBox = QGroupBox("Input Path")
@@ -234,7 +238,38 @@ class MainWindow(QMainWindow):
 				epubFile.writestr(opfPath, opfContents)
 
 	def buildNewOpf(self, originalOpfText, title, author, authorFileAs):
-		return ""
+		metadataStart = originalOpfText.find("<metadata")
+		metadataEnd = originalOpfText.find("</metadata>") + 11
+		metadataStr = originalOpfText[metadataStart:metadataEnd]
+		
+		identifierStart = metadataStr.find("<dc:identifier")
+		identifierEnd = metadataStr.find("</dc:identifier>") + 16
+		identifierStr = metadataStr[identifierStart:identifierEnd]
+		
+		# Fix for Barnes and Noble NOOK (original)
+		# name must be first attribute of meta tag, otherwise cover art doesn't work
+		coverIndex = metadataStr.find("name=\"cover\"")
+		coverStart = metadataStr.rfind("<meta", 0, coverIndex)
+		coverEnd = metadataStr.find("/>", coverIndex) + 2
+		coverStr = metadataStr[coverStart:coverEnd]
+		
+		coverIndex = coverStr.find("name=\"cover\"")
+		coverStr = coverStr[:coverIndex] + coverStr[coverIndex+12:]
+		coverStr = coverStr[:5] + " name=\"cover\"" + coverStr[5:]
+		
+		newMetadataStr = "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:opf=\"http://www.idpf.org/2007/opf\">\n"
+		newMetadataStr += "\t\t" + identifierStr + "\n"
+		newMetadataStr += "\t\t<dc:title>" + title + "</dc:title>\n"
+		newMetadataStr += "\t\t<dc:creator"
+		if (authorFileAs != ""):
+			newMetadataStr += " opf:file-as=\"" + authorFileAs + "\""
+		newMetadataStr += ">" + author + "</dc:creator>\n"
+		newMetadataStr += "\t\t<dc:language>en</dc:language>\n"
+		newMetadataStr += "\t\t" + coverStr + "\n"
+		newMetadataStr += "\t</metadata>"
+		
+		newOpfText = originalOpfText[:metadataStart] + newMetadataStr + originalOpfText[metadataEnd:]
+		return newOpfText
 		
 	#-----------------------------------------------------------------------------------------------
 	
@@ -334,6 +369,9 @@ class MainWindow(QMainWindow):
 
 if (__name__ == "__main__"):
 	app = QApplication(sys.argv)
-	window = MainWindow()
+	if (len(sys.argv) > 1):
+		window = MainWindow(sys.argv[1])
+	else:
+		window = MainWindow()
 	window.show()
 	sys.exit(app.exec_())
