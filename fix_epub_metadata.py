@@ -318,7 +318,10 @@ class MainWindow(QMainWindow):
 									attr = xml.attributes()
 									if (attr.hasAttribute("id") and attr.hasAttribute("href") and
 										attr.value("id") == coverId):
-										coverPath = os.path.dirname(opfPath) + "/" + attr.value("href")
+										if (os.path.dirname(opfPath) != ""):
+											coverPath = os.path.dirname(opfPath) + "/" + attr.value("href")
+										else:
+											coverPath = attr.value("href")
 								xml.skipCurrentElement()
 						else:
 							xml.skipCurrentElement()
